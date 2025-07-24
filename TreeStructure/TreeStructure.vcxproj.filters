@@ -23,5 +23,8 @@
     <ClInclude Include="..\Node1.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Node2.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

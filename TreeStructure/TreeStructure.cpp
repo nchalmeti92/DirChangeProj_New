@@ -836,12 +836,15 @@
 
 
 #include "../Node1.h"
-
+#include "Node2.h"
 
 int main() {
    // testCase("Tree: 10 children per node, depth 7", 10, 7);
-    testCase("Test 1: Empty names and offsets", 10, 7, false, false);
+   /* testCase("Test 1: Empty names and offsets", 10, 7, false, false);
     testCase("Test 2: Name (10 chars), no offsets", 10, 7, true, false);
-    testCase("Test 3: Name (10 chars) + 2x offsets", 10, 7, true, true);
+    testCase("Test 3: Name (10 chars) + 2x offsets", 10, 7, true, true);*/
+    testCase1(10000000, 9);
+    testCaseForNode2(10000000, 9);
+
     return 0;
 }

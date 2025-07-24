@@ -133,6 +133,8 @@
 #include <string>
 #include <cmath>
 #include <cassert>
+#include <queue>
+#include <unordered_map>
 
 // Simple bump-pointer memory pool
 class MemoryPool {
@@ -145,6 +147,13 @@ public:
         std::free(pool);
     }
     void* allocate(size_t size, size_t alignment = alignof(std::max_align_t)) {
+        auto& freeList = freeChunkPoolMemory[size];
+        if (!freeList.empty()) {
+            void* ptr = freeList.back();
+            freeList.pop_back();
+            return ptr;
+        }
+        // Normal bump-pointer allocation
         size_t current = reinterpret_cast<size_t>(pool) + offset;
         size_t aligned = (current + alignment - 1) & ~(alignment - 1);
         size_t newOffset = aligned - reinterpret_cast<size_t>(pool) + size;
@@ -153,15 +162,22 @@ public:
         offset = newOffset;
         return ptr;
     }
+
+    void deallocate(void* ptr, size_t size) {
+        freeChunkPoolMemory[size].push_back(ptr);
+    }
+
     void reset() { offset = 0; }
 
     size_t getOffset() const {
-		return offset;
-	}
+        return offset;
+    }
 private:
     char* pool;
     size_t poolSize;
     size_t offset;
+
+    std::unordered_map<size_t, std::vector<void*>> freeChunkPoolMemory;
 };
 
 // Global pool instance (tune size as needed)
@@ -175,55 +191,136 @@ static bool withOffsets = false;
 static int nodeCount = 0;
 
 struct Node1 {
-    void* temp1;
-    void* temp2;
-    void* temp3;
+    void* currentOffsets;
+    void* previousOffsets;
+    void* childNodes;
     char* name;
 
-    uint32_t size3;
-    uint8_t size1;
-    uint8_t size2;
-    uint8_t flags = 0;
-    uint8_t flags2 = 0;
+    uint32_t childCount;
+    uint8_t currentOffsetSize;
+    uint8_t previousOffsetSize;
+    uint16_t flags = 0;
 
-    Node1()
-        : temp1(nullptr), temp2(nullptr), temp3(nullptr),
-        name(nullptr), size3(0), size1(0), size2(0) {
+    Node1() : currentOffsets(nullptr), previousOffsets(nullptr), childNodes(nullptr),
+        name(nullptr), childCount(0), currentOffsetSize(0), previousOffsetSize(0) {
     }
 
     ~Node1() {
-        // No free: memory is managed by the pool and released all at once
+        // No free: memory is managed by the pool and released all at once  
     }
 
     void setName() {
-        if (fixedName.empty()) return;
         name = (char*)gPool.allocate(fixedName.size() + 1, alignof(char));
         strcpy_s(name, fixedName.size() + 1, fixedName.c_str());
     }
 
+    void setName(const std::string& inputname) {
+        name = (char*)gPool.allocate(inputname.size() + 1, alignof(char));
+        strcpy_s(name, inputname.size() + 1, inputname.c_str());
+    }
+
     void allocateOffsets() {
-        size1 = offSetCount;
-        size2 = offSetCount;
+        currentOffsetSize = offSetCount;
+        previousOffsetSize = offSetCount;
         if (offSetCount > 0) {
-            temp1 = gPool.allocate(offSetCount * sizeof(uint64_t), alignof(uint64_t));
-            std::memset(temp1, 0, offSetCount * sizeof(uint64_t));
+            currentOffsets = gPool.allocate(offSetCount * sizeof(uint64_t), alignof(uint64_t));
+            std::memset(currentOffsets, 0, offSetCount * sizeof(uint64_t));
         }
         if (offSetCount > 0) {
-            temp2 = gPool.allocate(offSetCount * sizeof(uint64_t), alignof(uint64_t));
-            std::memset(temp2, 0, offSetCount * sizeof(uint64_t));
+            previousOffsets = gPool.allocate(offSetCount * sizeof(uint64_t), alignof(uint64_t));
+            std::memset(previousOffsets, 0, offSetCount * sizeof(uint64_t));
         }
     }
 
     void allocateChildren() {
-        size3 = fanout;
+        childCount = fanout;
         if (fanout > 0) {
-            temp3 = gPool.allocate(fanout * sizeof(Node1*), alignof(Node1*));
-            std::memset(temp3, 0, fanout * sizeof(Node1*));
+            childNodes = gPool.allocate(fanout * sizeof(Node1*), alignof(Node1*));
+            std::memset(childNodes, 0, fanout * sizeof(Node1*));
         }
     }
 
+    Node1* AddAChild(const std::string& name) {
+        Node1* child = new (gPool.allocate(sizeof(Node1), alignof(Node1))) Node1();
+        addChild(child);
+        child->setName(name);
+        return child;
+    }
+
+    void addChild(Node1* child) {
+        Node1** newChildren = nullptr;
+        try {
+            newChildren = reinterpret_cast<Node1**>(gPool.allocate((childCount + 1) * sizeof(Node1*), alignof(Node1*)));
+        }
+        catch (const std::bad_alloc& e) {
+            std::cerr << "Memory allocation failed: " << e.what() << std::endl;
+            return;
+        }
+
+        for (uint32_t i = 0; i < childCount; ++i) {
+            newChildren[i] = children()[i];
+        }
+
+        if (childCount > 0)
+        {
+            gPool.deallocate(childNodes, childCount * sizeof(Node1*));
+        }
+
+        newChildren[childCount] = child;
+        childNodes = newChildren;
+        childCount += 1;
+    }
+
+    void addCurrentOffset(uint64_t value) {
+        uint64_t* newOffsets = nullptr;
+        try {
+            newOffsets = reinterpret_cast<uint64_t*>(gPool.allocate((currentOffsetSize + 1) * sizeof(uint64_t), alignof(uint64_t)));
+        }
+        catch (const std::bad_alloc& e) {
+            std::cerr << "Memory allocation failed: " << e.what() << std::endl;
+            return;
+        }
+
+        for (uint8_t i = 0; i < currentOffsetSize; ++i) {
+            newOffsets[i] = currentOffsets ? reinterpret_cast<uint64_t*>(currentOffsets)[i] : 0;
+        }
+
+        if (currentOffsetSize > 0)
+        {
+            gPool.deallocate(currentOffsets, currentOffsetSize * sizeof(uint64_t));
+        }
+
+        newOffsets[currentOffsetSize] = value;
+        currentOffsets = newOffsets;
+        currentOffsetSize += 1;
+    }
+
+    void addPrevOffset(uint64_t value) {
+        uint64_t* newOffsets = nullptr;
+        try {
+            newOffsets = reinterpret_cast<uint64_t*>(gPool.allocate((previousOffsetSize + 1) * sizeof(uint64_t), alignof(uint64_t)));
+        }
+        catch (const std::bad_alloc& e) {
+            std::cerr << "Memory allocation failed: " << e.what() << std::endl;
+            return;
+        }
+
+        for (uint8_t i = 0; i < previousOffsetSize; ++i) {
+            newOffsets[i] = previousOffsets ? reinterpret_cast<uint64_t*>(previousOffsets)[i] : 0;
+        }
+
+        if (previousOffsetSize > 0)
+        {
+            gPool.deallocate(previousOffsets, previousOffsetSize * sizeof(uint64_t));
+        }
+
+        newOffsets[previousOffsetSize] = value;
+        previousOffsets = newOffsets;
+        previousOffsetSize += 1;
+    }
+
     Node1** children() {
-        return reinterpret_cast<Node1**>(temp3);
+        return reinterpret_cast<Node1**>(childNodes);
     }
 };
 
@@ -260,8 +357,50 @@ void testCase(const std::string& label, int fanout, int depth, bool withname, bo
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
-    std::cout << "Created " << nodeCount << " nodes in " << duration.count() << " seconds.\n" << ":current used memory is :"<<gPool.getOffset()/(1024 * 1024) <<" MB";
+    std::cout << "Created " << nodeCount << " nodes in " << duration.count() << " seconds.\n" << ":current used memory is :" << gPool.getOffset() / (1024 * 1024) << " MB";
 
     // No need to freeTree(root); memory is managed by the pool
+}
+
+void testCase1(size_t totalNodes, size_t maxChildren) {
+    std::string strConstNodeName = "1234567890";
+    gPool.reset();
+
+    Node1 root;
+    root.setName(strConstNodeName);
+    root.addCurrentOffset(123);
+    root.addCurrentOffset(123);
+    root.addPrevOffset(123);
+    root.addPrevOffset(123);
+
+    std::queue<Node1*> q;
+    q.push(&root);
+
+    size_t createdNodes = 1; // root counts as 1
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    while (createdNodes < totalNodes) {
+        Node1* current = q.front();
+        q.pop();
+
+        size_t childrenToCreate = std::min(maxChildren, totalNodes - createdNodes);
+        for (size_t i = 0; i < childrenToCreate; ++i) {
+            Node1* newNode = current->AddAChild(strConstNodeName);
+            newNode->addCurrentOffset(123);
+            newNode->addCurrentOffset(234);
+            newNode->addPrevOffset(567);
+            newNode->addPrevOffset(678);
+            q.push(newNode);
+
+            ++createdNodes;
+            if (createdNodes >= totalNodes) break;
+        }
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    std::cout << "Created " << createdNodes << " nodes in " << duration.count() << " seconds.\n"
+        << "Current used memory: " << gPool.getOffset() / (1024 * 1024) << " MB\n";
 }
 
