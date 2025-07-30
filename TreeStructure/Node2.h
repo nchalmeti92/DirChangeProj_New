@@ -15,7 +15,7 @@ struct Node2; // Forward declaration
 static boost::pool<> offsetPool(sizeof(uint64_t));
 static boost::pool<> childPool(sizeof(Node2*));
 
-
+// Node2 structure with boost memory pool
 struct Node2 {
     void* currentOffsets;
     void* previousOffsets;

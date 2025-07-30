@@ -838,13 +838,108 @@
 #include "../Node1.h"
 #include "Node2.h"
 
-int main() {
+//#define CATCH_CONFIG_MAIN
+//#include <catch2/catch.hpp>
+//#include "Node1.h"
+//
+//TEST_CASE("MemoryPool allocates and reuses blocks", "[MemoryPool]") {
+//    MemoryPool pool(1024 * 1024); // 1MB pool
+//
+//    void* block1 = pool.allocate(64);
+//    void* block2 = pool.allocate(64);
+//    REQUIRE(block1 != nullptr);
+//    REQUIRE(block2 != nullptr);
+//    REQUIRE(block1 != block2);
+//
+//    pool.deallocate(block1, 64);
+//    void* block3 = pool.allocate(64);
+//    REQUIRE(block3 == block1); // Should reuse freed block
+//}
+//
+//TEST_CASE("Node1 offset and child management", "[Node1]") {
+//    gPool.reset();
+//    Node1 node;
+//    node.setName("testnode");
+//
+//    node.addCurrentOffset(100);
+//    node.addCurrentOffset(200);
+//    node.addPrevOffset(300);
+//
+//    REQUIRE(node.currentOffsetSize == 2);
+//    REQUIRE(node.previousOffsetSize == 1);
+//
+//    Node1* child1 = new (gPool.allocate(sizeof(Node1), alignof(Node1))) Node1();
+//    Node1* child2 = new (gPool.allocate(sizeof(Node1), alignof(Node1))) Node1();
+//    node.addChild(child1);
+//    node.addChild(child2);
+//
+//    REQUIRE(node.childCount == 2);
+//    REQUIRE(node.children()[0] == child1);
+//    REQUIRE(node.children()[1] == child2);
+//}
+//
+//TEST_CASE("Node1 memory reuse for offsets", "[Node1]") {
+//    gPool.reset();
+//    Node1 node;
+//    node.addCurrentOffset(1);
+//    void* firstBlock = node.currentOffsets;
+//
+//    node.addCurrentOffset(2);
+//    void* secondBlock = node.currentOffsets;
+//
+//    node.addCurrentOffset(3);
+//    void* thirdBlock = node.currentOffsets;
+//
+//    gPool.deallocate(secondBlock, 2 * sizeof(uint64_t));
+//    void* reusedBlock = gPool.allocate(2 * sizeof(uint64_t), alignof(uint64_t));
+//    REQUIRE(reusedBlock == secondBlock);
+//}
+//
+//TEST_CASE("Tree construction with Node1", "[Node1]") {
+//    gPool.reset();
+//    Node1 root;
+//    root.setName("root");
+//    size_t count = buildTree(&root, 2); // fanout=10, depth=2 by default
+//
+//    REQUIRE(count > 1);
+//    REQUIRE(root.childCount == fanout);
+//    for (uint32_t i = 0; i < root.childCount; ++i) {
+//        REQUIRE(root.children()[i] != nullptr);
+//    }
+//}
+
+int main(int argc, char* argv[]) {
    // testCase("Tree: 10 children per node, depth 7", 10, 7);
    /* testCase("Test 1: Empty names and offsets", 10, 7, false, false);
     testCase("Test 2: Name (10 chars), no offsets", 10, 7, true, false);
     testCase("Test 3: Name (10 chars) + 2x offsets", 10, 7, true, true);*/
-    testCase1(10000000, 9);
-    testCaseForNode2(10000000, 9);
+
+	size_t count = 10000000; // default 10 million nodes
+	size_t maxChildren = 9; // default 9 children per node
+
+    bool useMemoryPool = false;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "-count" && i + 1 < argc) {
+            count = static_cast<size_t>(std::stoull(argv[i + 1]));
+            ++i;
+        }
+
+        else if (std::string(argv[3]) == "-depth" && i + 1 < argc) {
+            maxChildren = static_cast<size_t>(std::stoull(argv[i + 1]));
+            ++i;
+        }
+        else if (std::string(argv[i]) == "-usememorypool" && i + 1 < argc) {
+            std::string val = argv[i + 1];
+            useMemoryPool = (val == "1" || val == "true" || val == "TRUE");
+            ++i;
+        }
+    }
+
+    FileView fileView;
+    fileView.testCase1(count, maxChildren, useMemoryPool);
+
+    //testCaseForNode2(count, maxChildren);
 
     return 0;
 }
